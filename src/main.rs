@@ -2,9 +2,8 @@ use codex_acp::{AcpMcpBridge, CodexAgent, FsBridge};
 use anyhow::Result;
 use codex_core::config::Config;
 use std::env;
-use tokio::{io, sync::mpsc};
-use agent_client_protocol::ByteStreams;
-use tokio_util::compat::{TokioAsyncReadCompatExt as _, TokioAsyncWriteCompatExt as _};
+use tokio::sync::mpsc;
+use agent_client_protocol::Stdio;
 
 #[tokio::main(flavor = "current_thread")]
 async fn main() -> Result<()> {
@@ -20,9 +19,7 @@ async fn main() -> Result<()> {
                 return codex_acp::mcp_acp_bridge::run_mcp_server().await;
             }
 
-            let outgoing = io::stdout().compat_write();
-            let incoming = io::stdin().compat();
-            let transport = ByteStreams::new(outgoing, incoming);
+            let transport = Stdio::new();
             let (tx, rx) = mpsc::unbounded_channel();
             let (client_tx, client_rx) = mpsc::unbounded_channel();
             let config = Config::load_with_cli_overrides(vec![]).await?;
