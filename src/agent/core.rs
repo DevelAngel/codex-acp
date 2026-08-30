@@ -9,7 +9,7 @@ use agent_client_protocol::schema::v1::{
     AgentCapabilities, AuthMethod, AuthMethodAgent, AuthMethodId, AuthenticateRequest, AuthenticateResponse,
     AvailableCommandsUpdate, ConnectMcpRequest, ConnectMcpResponse, Implementation,
     InitializeRequest, InitializeResponse, LoadSessionRequest, LoadSessionResponse,
-    McpCapabilities, MessageMcpRequest, MessageMcpResponse, NewSessionRequest,
+    McpCapabilities, MessageMcpNotification, MessageMcpRequest, MessageMcpResponse, NewSessionRequest,
     NewSessionResponse, PromptCapabilities, ReadTextFileRequest, ReadTextFileResponse,
     RequestPermissionRequest, RequestPermissionResponse, SessionId,
     SessionModeId, SessionModeState, SessionNotification, SessionUpdate,
@@ -61,6 +61,9 @@ pub enum ClientOp {
     MessageMcp {
         request: MessageMcpRequest,
         response_tx: oneshot::Sender<Result<MessageMcpResponse, Error>>,
+    },
+    MessageMcpNotification {
+        notification: MessageMcpNotification,
     },
 }
 

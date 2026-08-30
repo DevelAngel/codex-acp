@@ -5,7 +5,7 @@
 
 use std::{net::SocketAddr, sync::Arc};
 
-use agent_client_protocol::schema::v1::{ConnectMcpRequest, McpConnectionId, McpServerAcpId, MessageMcpRequest};
+use agent_client_protocol::schema::v1::{ConnectMcpRequest, McpConnectionId, McpServerAcpId, MessageMcpNotification, MessageMcpRequest};
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value, json};
 use tokio::{
@@ -177,6 +177,15 @@ impl AcpMcpBridgeInner {
         );
         self.message_mcp(connection_id.clone(), "initialize", initialize_params)
             .await?;
+        self.client_tx
+            .send(ClientOp::MessageMcpNotification {
+                notification: MessageMcpNotification::new(
+                    connection_id.clone(),
+                    "notifications/initialized",
+                ),
+            })
+            .map_err(|_| "client message_mcp notification channel closed".to_string())?;
+
 
         let params_map = match params {
             Value::Object(map) => map,

@@ -18,6 +18,7 @@ mod prompt;
 mod session_manager;
 mod utils;
 
+use tracing::warn;
 // Public exports
 pub use core::{ClientOp, CodexAgent};
 pub use session_manager::SessionManager;
@@ -121,6 +122,11 @@ impl CodexAgent {
                                 }
                                 Some(ClientOp::MessageMcp { request, response_tx }) => {
                                     let _ = response_tx.send(conn.send_request(request).block_task().await);
+                                }
+                                Some(ClientOp::MessageMcpNotification { notification }) => {
+                                    if let Err(err) = conn.send_notification(notification) {
+                                        warn!(?err, "failed to send MCP notification to client");
+                                    }
                                 }
                                 None => break,
                             }
