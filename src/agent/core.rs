@@ -29,7 +29,7 @@ use tokio::{
 use tracing::{info, warn};
 use uuid::Uuid;
 
-use crate::{agent::utils, fs::FsBridge};
+use crate::{agent::utils, fs::FsBridge, mcp_acp_bridge::AcpMcpBridge};
 
 use super::{
     commands,
@@ -73,6 +73,7 @@ pub struct CodexAgent {
     pub(super) auth_manager: Arc<RwLock<Arc<AuthManager>>>,
     pub(super) client_tx: UnboundedSender<ClientOp>,
     pub(super) fs_bridge: Option<Arc<FsBridge>>,
+    pub(super) mcp_bridge: Option<Arc<AcpMcpBridge>>,
 }
 
 impl CodexAgent {
@@ -87,6 +88,7 @@ impl CodexAgent {
         client_tx: UnboundedSender<ClientOp>,
         config: Config,
         fs_bridge: Option<Arc<FsBridge>>,
+        mcp_bridge: Option<Arc<AcpMcpBridge>>,
     ) -> Self {
         let auth = AuthManager::shared(
             config.codex_home.clone(),
@@ -104,6 +106,7 @@ impl CodexAgent {
             auth_manager: Arc::new(RwLock::new(auth)),
             client_tx,
             fs_bridge,
+            mcp_bridge,
         }
     }
 

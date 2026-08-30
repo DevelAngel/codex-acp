@@ -9,10 +9,13 @@
 //! Modules:
 //! - `agent`: The core ACP agent implementation and its submodules.
 //! - `fs`: Filesystem bridge and MCP server entrypoint used by the agent.
+//! - `mcp_acp_bridge`: Bridge and MCP server entrypoint that relays
+//!   ACP-declared (`McpServer::Acp`) MCP servers to Codex.
 
 pub mod agent;
 pub mod fs;
 pub mod logging;
+pub mod mcp_acp_bridge;
 
 // Common re-exports for convenience.
 pub use agent::{CodexAgent, SessionManager};
