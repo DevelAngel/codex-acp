@@ -5,7 +5,7 @@
 
 use std::{net::SocketAddr, sync::Arc};
 
-use agent_client_protocol::{ConnectMcpRequest, McpServerAcpId, MessageMcpRequest, SessionId};
+use agent_client_protocol::schema::v1::{ConnectMcpRequest, McpServerAcpId, MessageMcpRequest, SessionId};
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value, json};
 use tokio::{

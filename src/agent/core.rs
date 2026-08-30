@@ -7,12 +7,13 @@ use agent_client_protocol::Error;
 use agent_client_protocol::schema::ProtocolVersion;
 use agent_client_protocol::schema::v1::{
     AgentCapabilities, AuthMethod, AuthMethodAgent, AuthMethodId, AuthenticateRequest, AuthenticateResponse,
-    AvailableCommandsUpdate, Implementation, InitializeRequest, InitializeResponse,
-    LoadSessionRequest, LoadSessionResponse, McpCapabilities, NewSessionRequest,
-    NewSessionResponse, PromptCapabilities, ReadTextFileRequest,
-    ReadTextFileResponse, RequestPermissionRequest, RequestPermissionResponse, SessionId,
-    SessionModeId, SessionModeState, SessionNotification, SessionUpdate,
-    SetSessionModeRequest, SetSessionModeResponse,
+    AvailableCommandsUpdate, ConnectMcpRequest, ConnectMcpResponse, Implementation,
+    InitializeRequest, InitializeResponse, LoadSessionRequest, LoadSessionResponse,
+    McpCapabilities, MessageMcpRequest, MessageMcpResponse, ModelId, NewSessionRequest,
+    NewSessionResponse, PromptCapabilities, ReadTextFileRequest, ReadTextFileResponse,
+    RequestPermissionRequest, RequestPermissionResponse, SessionId,
+    SessionModeId, SessionModeState, SessionModelState, SessionNotification, SessionUpdate,
+    SetSessionModeRequest, SetSessionModeResponse, SetSessionModelRequest, SetSessionModelResponse,
     WriteTextFileRequest, WriteTextFileResponse,
 };
 
