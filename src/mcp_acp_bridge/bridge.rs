@@ -151,6 +151,7 @@ impl AcpMcpBridgeInner {
             params,
         } = request;
 
+        tracing::debug!(%server_id, %method, "forwarding MCP request through ACP");
         match self.forward(session_id, server_id, method, params).await {
             Ok(result) => BridgeResponse::success(id, result),
             Err(err) => BridgeResponse::error(id, err),

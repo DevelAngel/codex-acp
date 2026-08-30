@@ -108,6 +108,7 @@ impl ServerHandler for AcpMcpProxy {
         _context: RequestContext<RoleServer>,
     ) -> Result<CallToolResult, McpError> {
         let mut params = Map::new();
+        tracing::debug!(tool = %request.name, "MCP tool call received by ACP bridge");
         params.insert("name".into(), json!(request.name));
         params.insert(
             "arguments".into(),
