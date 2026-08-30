@@ -1,23 +1,24 @@
 use std::{
-    collections::HashMap,
     env,
     sync::{Arc, RwLock},
 };
 
-use agent_client_protocol::{
-    AgentCapabilities, AuthMethod, AuthMethodId, AuthenticateRequest, AuthenticateResponse,
-    AvailableCommandsUpdate, Error, Implementation, InitializeRequest, InitializeResponse,
-    LoadSessionRequest, LoadSessionResponse, McpCapabilities, ModelId, NewSessionRequest,
-    NewSessionResponse, PromptCapabilities, ProtocolVersion, ReadTextFileRequest,
+use agent_client_protocol::Error;
+use agent_client_protocol::schema::ProtocolVersion;
+use agent_client_protocol::schema::v1::{
+    AgentCapabilities, AuthMethod, AuthMethodAgent, AuthMethodId, AuthenticateRequest, AuthenticateResponse,
+    AvailableCommandsUpdate, Implementation, InitializeRequest, InitializeResponse,
+    LoadSessionRequest, LoadSessionResponse, McpCapabilities, NewSessionRequest,
+    NewSessionResponse, PromptCapabilities, ReadTextFileRequest,
     ReadTextFileResponse, RequestPermissionRequest, RequestPermissionResponse, SessionId,
-    SessionModeId, SessionModeState, SessionModelState, SessionNotification, SessionUpdate,
-    SetSessionModeRequest, SetSessionModeResponse, SetSessionModelRequest, SetSessionModelResponse,
+    SessionModeId, SessionModeState, SessionNotification, SessionUpdate,
+    SetSessionModeRequest, SetSessionModeResponse,
     WriteTextFileRequest, WriteTextFileResponse,
 };
 use codex_app_server_protocol::AuthMode;
+use codex_core::config::Config;
 use codex_core::{
     AuthManager, ConversationManager, NewConversation,
-    config::{Config, profile::ConfigProfile},
     protocol::{Op, SessionSource},
 };
 use tokio::{
@@ -60,7 +61,6 @@ pub enum ClientOp {
 pub struct CodexAgent {
     pub(super) session_manager: SessionManager,
     pub(super) config: Config,
-    pub(super) profiles: HashMap<String, ConfigProfile>,
     pub(super) auth_manager: Arc<RwLock<Arc<AuthManager>>>,
     pub(super) client_tx: UnboundedSender<ClientOp>,
     pub(super) fs_bridge: Option<Arc<FsBridge>>,
@@ -77,7 +77,6 @@ impl CodexAgent {
         session_update_tx: UnboundedSender<(SessionNotification, oneshot::Sender<()>)>,
         client_tx: UnboundedSender<ClientOp>,
         config: Config,
-        profiles: HashMap<String, ConfigProfile>,
         fs_bridge: Option<Arc<FsBridge>>,
     ) -> Self {
         let auth = AuthManager::shared(
@@ -93,7 +92,6 @@ impl CodexAgent {
         Self {
             session_manager,
             config,
-            profiles,
             auth_manager: Arc::new(RwLock::new(auth)),
             client_tx,
             fs_bridge,
@@ -109,23 +107,23 @@ impl CodexAgent {
 
         // Advertise supported auth methods based on the configured provider
         let mut auth_methods = vec![
-            AuthMethod::new(AuthMethodId::new("chatgpt"), "ChatGPT")
-                .description("Sign in with ChatGPT to use your plan"),
-            AuthMethod::new(AuthMethodId::new("apikey"), "OpenAI API Key")
-                .description("Use OPENAI_API_KEY from environment or auth.json"),
+            AuthMethod::Agent(AuthMethodAgent::new(AuthMethodId::new("chatgpt"), "ChatGPT")
+                .description("Sign in with ChatGPT to use your plan")),
+            AuthMethod::Agent(AuthMethodAgent::new(AuthMethodId::new("apikey"), "OpenAI API Key")
+                .description("Use OPENAI_API_KEY from environment or auth.json")),
         ];
 
         // Add custom provider auth method if using a custom provider
         if utils::is_custom_provider(&self.config.model_provider_id) {
             auth_methods.push(
-                AuthMethod::new(
+                AuthMethod::Agent(AuthMethodAgent::new(
                     AuthMethodId::new(self.config.model_provider_id.clone()),
                     self.config.model_provider.name.clone(),
                 )
                 .description(format!(
                     "Authenticate with custom provider: {}",
                     self.config.model_provider_id
-                )),
+                ))),
             );
         }
 
@@ -262,7 +260,7 @@ impl CodexAgent {
         let acp_session_id = conversation_id.to_string();
 
         // Initialize session state from config
-        self.session_manager.sessions().borrow_mut().insert(
+        self.session_manager.sessions().write().map_err(|_| Error::internal_error().data("session state lock poisoned"))?.insert(
             acp_session_id.clone(),
             SessionState::new(
                 fs_session_id.clone(),
@@ -291,20 +289,10 @@ impl CodexAgent {
             });
         }
 
-        // Build models response only for custom providers
-        let models = if utils::is_custom_provider(&self.config.model_provider_id) {
-            Some(SessionModelState::new(
-                utils::current_model_id_from_config(&self.config),
-                utils::available_models_from_profiles(&self.config, &self.profiles),
-            ))
-        } else {
-            None
-        };
 
         Ok(
             NewSessionResponse::new(SessionId::new(acp_session_id.clone()))
-                .modes(modes)
-                .models(models),
+                .modes(modes),
         )
     }
 
@@ -315,40 +303,20 @@ impl CodexAgent {
     ) -> Result<LoadSessionResponse, Error> {
         info!(?args, "Received load session request");
         let sessions = self.session_manager.sessions();
-        let (current_mode, _current_model) = {
-            let sessions = sessions.borrow();
+        let current_mode = {
+            let sessions = sessions.read().map_err(|_| Error::internal_error().data("session state lock poisoned"))?;
             let state = sessions
                 .get(args.session_id.0.as_ref())
                 .ok_or_else(|| Error::invalid_params().data("session not found"))?;
-            (state.current_mode.clone(), state.current_model.clone())
+            state.current_mode.clone()
         };
 
-        // Use stored model or derive from config
-        let current_model_id = if let Some(ref stored_model) = _current_model {
-            // If model was set via set_session_model, it's already in "model@provider" format
-            ModelId::new(stored_model.clone())
-        } else {
-            // Otherwise, construct from current config
-            utils::current_model_id_from_config(&self.config)
-        };
-
-        // Build models response only for custom providers
-        let models = if utils::is_custom_provider(&self.config.model_provider_id) {
-            Some(SessionModelState::new(
-                current_model_id,
-                utils::available_models_from_profiles(&self.config, &self.profiles),
-            ))
-        } else {
-            None
-        };
-
-        Ok(LoadSessionResponse::new()
-            .modes(SessionModeState::new(
-                current_mode,
-                utils::available_modes(),
-            ))
-            .models(models))
+        Ok(LoadSessionResponse::new().modes(SessionModeState::new(
+            current_mode,
+            utils::available_modes(),
+        )))
     }
+
 
     /// Change the approval and sandbox mode for a session.
     ///
@@ -384,58 +352,4 @@ impl CodexAgent {
         Ok(SetSessionModeResponse::default())
     }
 
-    /// Change the model for a session.
-    ///
-    /// This preserves the current approval and sandbox settings while updating
-    /// the model and its associated reasoning effort level.
-    ///
-    /// This method is only available when using a custom (non-builtin) provider.
-    pub(super) async fn set_session_model(
-        &self,
-        args: SetSessionModelRequest,
-    ) -> Result<SetSessionModelResponse, Error> {
-        info!(?args, "Received set session model request");
-
-        // Check if current provider is custom
-        if !utils::is_custom_provider(&self.config.model_provider_id) {
-            return Err(Error::invalid_params().data(
-                "set_session_model is only available when using a custom provider. Current provider is a builtin provider.",
-            ));
-        }
-
-        // Parse and validate the model_id, extracting provider, model name, and effort
-        let (provider_id, model_name, effort) =
-            utils::parse_and_validate_model(&self.config, &self.profiles, &args.model_id)
-                .ok_or_else(|| {
-                    Error::invalid_params()
-                        .data("invalid model id format or provider/model not found")
-                })?;
-
-        // Ensure the requested model is also from a custom provider
-        if !utils::is_custom_provider(&provider_id) {
-            return Err(Error::invalid_params().data(
-                "Cannot switch to a builtin provider model. Only custom provider models are allowed.",
-            ));
-        }
-
-        self.session_manager
-            .apply_context_override(
-                &args.session_id,
-                |state| Op::OverrideTurnContext {
-                    cwd: None,
-                    approval_policy: Some(state.current_approval),
-                    sandbox_policy: Some(state.current_sandbox.clone()),
-                    model: Some(format!("{}@{}", provider_id, model_name)),
-                    effort: Some(effort),
-                    summary: None,
-                },
-                |state| {
-                    state.current_model = Some(format!("{}@{}", provider_id, model_name));
-                    state.current_effort = effort;
-                },
-            )
-            .await?;
-
-        Ok(SetSessionModelResponse::default())
-    }
 }

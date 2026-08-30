@@ -1,4 +1,13 @@
-use agent_client_protocol::{self as acp, Agent};
+use agent_client_protocol::{Agent, ConnectTo, Error};
+use agent_client_protocol::schema::v1::{
+    AuthenticateRequest, CancelNotification, InitializeRequest, LoadSessionRequest,
+    NewSessionRequest, PromptRequest, SessionNotification, SetSessionModeRequest,
+};
+use agent_client_protocol::{on_receive_notification, on_receive_request};
+use tokio::sync::mpsc::UnboundedReceiver;
+use tokio::sync::oneshot::Sender;
+
+use std::sync::Arc;
 
 // Submodules
 mod commands;
@@ -13,64 +22,108 @@ mod utils;
 pub use core::{ClientOp, CodexAgent};
 pub use session_manager::SessionManager;
 
-// Agent trait implementation - delegates to submodule methods
-#[async_trait::async_trait(?Send)]
-impl Agent for CodexAgent {
-    async fn initialize(
-        &self,
-        args: acp::InitializeRequest,
-    ) -> Result<acp::InitializeResponse, acp::Error> {
-        self.initialize(args).await
-    }
+impl CodexAgent {
+    pub async fn serve(self, transport: impl ConnectTo<Agent>, mut rx: UnboundedReceiver<(SessionNotification, Sender<()>)>, mut client_rx: UnboundedReceiver<ClientOp>) -> Result<(), Error> {
+        let agent = Arc::new(self);
 
-    async fn authenticate(
-        &self,
-        args: acp::AuthenticateRequest,
-    ) -> Result<acp::AuthenticateResponse, acp::Error> {
-        self.authenticate(args).await
-    }
-
-    async fn new_session(
-        &self,
-        args: acp::NewSessionRequest,
-    ) -> Result<acp::NewSessionResponse, acp::Error> {
-        self.new_session(args).await
-    }
-
-    async fn load_session(
-        &self,
-        args: acp::LoadSessionRequest,
-    ) -> Result<acp::LoadSessionResponse, acp::Error> {
-        self.load_session(args).await
-    }
-
-    async fn set_session_mode(
-        &self,
-        args: acp::SetSessionModeRequest,
-    ) -> Result<acp::SetSessionModeResponse, acp::Error> {
-        self.set_session_mode(args).await
-    }
-
-    async fn set_session_model(
-        &self,
-        args: acp::SetSessionModelRequest,
-    ) -> Result<acp::SetSessionModelResponse, acp::Error> {
-        self.set_session_model(args).await
-    }
-
-    async fn prompt(&self, args: acp::PromptRequest) -> Result<acp::PromptResponse, acp::Error> {
-        self.prompt(args).await
-    }
-
-    async fn cancel(&self, args: acp::CancelNotification) -> Result<(), acp::Error> {
-        self.cancel(args).await
-    }
-
-    async fn ext_method(&self, args: acp::ExtRequest) -> Result<acp::ExtResponse, acp::Error> {
-        self.ext_method(args).await
-    }
-
-    async fn ext_notification(&self, args: acp::ExtNotification) -> Result<(), acp::Error> {
-        self.ext_notification(args).await
+        Agent.builder()
+            .on_receive_request({
+                let agent = agent.clone();
+                async move |args: InitializeRequest, responder, _cx| {
+                    responder.respond_with_result(agent.initialize(args).await)
+                }
+            }, on_receive_request!())
+            .on_receive_request({
+                let agent = agent.clone();
+                async move |args: AuthenticateRequest, responder, _cx| {
+                    responder.respond_with_result(agent.authenticate(args).await)
+                }
+            }, on_receive_request!())
+            .on_receive_request({
+                let agent = agent.clone();
+                async move |args: NewSessionRequest, responder, _cx| {
+                    responder.respond_with_result(agent.new_session(args).await)
+                }
+            }, on_receive_request!())
+            .on_receive_request({
+                let agent = agent.clone();
+                async move |args: LoadSessionRequest, responder, _cx| {
+                    responder.respond_with_result(agent.load_session(args).await)
+                }
+            }, on_receive_request!())
+            .on_receive_request({
+                let agent = agent.clone();
+                async move |args: SetSessionModeRequest, responder, _cx| {
+                    responder.respond_with_result(agent.set_session_mode(args).await)
+                }
+            }, on_receive_request!())
+            .on_receive_request({
+                let agent = agent.clone();
+                async move |args: PromptRequest, responder, _cx| {
+                    responder.respond_with_result(agent.prompt(args).await)
+                }
+            }, on_receive_request!())
+            .on_receive_notification({
+                let agent = agent.clone();
+                async move |args: CancelNotification, _cx| agent.cancel(args).await
+            }, on_receive_notification!())
+            .with_spawned(move |conn| async move {
+                loop {
+                    tokio::select! {
+                        msg = rx.recv() => {
+                            match msg {
+                                Some((notification, tx)) => {
+                                    let result = conn.send_notification(notification);
+                                    if result.is_err() {
+                                        break;
+                                    }
+                                    let _ = tx.send(());
+                                }
+                                None => break,
+                            }
+                        }
+                        op = client_rx.recv() => {
+                            match op {
+                                Some(ClientOp::RequestPermission { request, response_tx }) => {
+                                    let _ = response_tx.send(conn.send_request(request).block_task().await);
+                                }
+                                Some(ClientOp::ReadTextFile { mut request, response_tx }) => {
+                                    match agent.session_manager.resolve_acp_session_id(&request.session_id) {
+                                        Some(session_id) => {
+                                            request.session_id = session_id;
+                                            let _ = response_tx.send(conn.send_request(request).block_task().await);
+                                        }
+                                        None => {
+                                            let _ = response_tx.send(Err(Error::invalid_params()
+                                                .data("unknown session for read_text_file")));
+                                        }
+                                    }
+                                }
+                                Some(ClientOp::WriteTextFile { mut request, response_tx }) => {
+                                    match agent.session_manager.resolve_acp_session_id(&request.session_id) {
+                                        Some(session_id) => {
+                                            request.session_id = session_id.clone();
+                                            if agent.session_manager.is_read_only(&session_id) {
+                                                let _ = response_tx.send(Err(Error::invalid_params()
+                                                    .data("write_text_file is disabled while session mode is read-only")));
+                                            } else {
+                                                let _ = response_tx.send(conn.send_request(request).block_task().await);
+                                            }
+                                        }
+                                        None => {
+                                            let _ = response_tx.send(Err(Error::invalid_params()
+                                                .data("unknown session for write_text_file")));
+                                        }
+                                    }
+                                }
+                                None => break,
+                            }
+                        }
+                    }
+                }
+                Ok::<(), Error>(())
+            })
+            .connect_to(transport)
+            .await
     }
 }

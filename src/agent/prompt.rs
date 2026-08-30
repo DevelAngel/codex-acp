@@ -1,6 +1,6 @@
-use agent_client_protocol::{
-    CancelNotification, ContentBlock, EmbeddedResourceResource, Error, ExtNotification, ExtRequest,
-    ExtResponse, Plan, PlanEntry, PlanEntryPriority, PlanEntryStatus, PromptRequest,
+use agent_client_protocol::Error;
+use agent_client_protocol::schema::v1::{
+    CancelNotification, ContentBlock, EmbeddedResourceResource, Plan, PlanEntry, PlanEntryPriority, PlanEntryStatus, PromptRequest,
     PromptResponse, RequestPermissionResponse, SessionUpdate, StopReason, ToolCall, ToolCallId,
     ToolCallStatus, ToolCallUpdate, ToolCallUpdateFields, ToolKind,
 };
@@ -403,20 +403,4 @@ impl CodexAgent {
         Ok(())
     }
 
-    /// Handle extension method calls.
-    ///
-    /// This is a placeholder for future extensions.
-    pub(super) async fn ext_method(&self, args: ExtRequest) -> Result<ExtResponse, Error> {
-        info!(method = %args.method, params = ?args.params, "Received extension method call");
-        let raw = serde_json::value::to_raw_value(&json!({"example": "response"}))?;
-        Ok(ExtResponse::new(std::sync::Arc::from(raw)))
-    }
-
-    /// Handle extension notifications.
-    ///
-    /// This is a placeholder for future extensions.
-    pub(super) async fn ext_notification(&self, args: ExtNotification) -> Result<(), Error> {
-        info!(method = %args.method, params = ?args.params, "Received extension notification call");
-        Ok(())
-    }
 }

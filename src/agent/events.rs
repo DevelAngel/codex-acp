@@ -3,7 +3,7 @@ use std::{
     sync::Arc,
 };
 
-use agent_client_protocol::{
+use agent_client_protocol::schema::v1::{
     Diff, PermissionOption, PermissionOptionKind, RequestPermissionOutcome,
     RequestPermissionRequest, RequestPermissionResponse, SessionId, SessionUpdate, Terminal,
     TerminalId, ToolCall, ToolCallContent, ToolCallId, ToolCallStatus, ToolCallUpdate,

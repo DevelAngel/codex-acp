@@ -4,7 +4,7 @@ use std::{
     sync::Arc,
 };
 
-use agent_client_protocol::{ReadTextFileRequest, SessionId, WriteTextFileRequest};
+use agent_client_protocol::schema::v1::{ReadTextFileRequest, SessionId, WriteTextFileRequest};
 use serde::{Deserialize, Serialize};
 use tokio::{
     fs,

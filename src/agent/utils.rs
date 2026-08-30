@@ -1,18 +1,15 @@
 use std::{
-    collections::{HashMap, HashSet},
     path::{Path, PathBuf},
     sync::LazyLock,
 };
 
-use agent_client_protocol::{
-    ModelId, ModelInfo, SessionMode, SessionModeId, SessionModeState, ToolCallLocation, ToolKind,
-};
+use agent_client_protocol::schema::v1::{SessionMode, SessionModeId, SessionModeState, ToolCallLocation, ToolKind};
 use codex_common::approval_presets::{ApprovalPreset, builtin_approval_presets};
 use codex_core::{
-    config::{Config, profile::ConfigProfile},
+    config::Config,
     protocol::McpInvocation,
 };
-use codex_protocol::{openai_models::ReasoningEffort, parse_command::ParsedCommand};
+use codex_protocol::parse_command::ParsedCommand;
 
 /// All available approval presets used to derive ACP session modes.
 static APPROVAL_PRESETS: LazyLock<Vec<ApprovalPreset>> = LazyLock::new(builtin_approval_presets);
@@ -212,115 +209,3 @@ pub fn is_custom_provider(provider_id: &str) -> bool {
     !matches!(provider_id, "openai")
 }
 
-/// Return the current model ID from config.
-pub fn current_model_id_from_config(config: &Config) -> ModelId {
-    let model_name = config.model.as_deref().unwrap_or_default();
-    ModelId::new(format!("{}@{}", config.model_provider_id, model_name))
-}
-
-/// Build a `ModelInfo` for display to the client.
-fn build_model_info(config: &Config, provider_id: &str, model_name: &str) -> Option<ModelInfo> {
-    let provider_info = config.model_providers.get(provider_id)?;
-    let model_id = format!("{}@{}", provider_id, model_name);
-
-    Some(
-        ModelInfo::new(
-            ModelId::new(model_id),
-            format!("{}@{}", provider_info.name, model_name),
-        )
-        .description(format!(
-            "Provider: {}, Model: {}",
-            provider_info.name, model_name
-        )),
-    )
-}
-
-/// Return the list of ACP `ModelInfo` entries derived from profiles (custom-only).
-pub fn available_models_from_profiles(
-    config: &Config,
-    profiles: &HashMap<String, ConfigProfile>,
-) -> Vec<ModelInfo> {
-    let mut models = Vec::new();
-    let mut seen = HashSet::new();
-
-    // Add the current model from config first (only if it's a custom provider)
-    if is_custom_provider(&config.model_provider_id)
-        && let Some(model_name) = config.model.as_deref()
-        && let Some(model_info) = build_model_info(config, &config.model_provider_id, model_name)
-    {
-        seen.insert(format!("{}@{}", &config.model_provider_id, model_name));
-        models.push(model_info);
-    }
-
-    // Extract unique model combinations from profiles (only custom providers)
-    // Collect candidates first to allow deterministic sorting.
-    let mut candidates = Vec::new();
-    for profile in profiles.values() {
-        if let (Some(model_name), Some(provider_id)) = (&profile.model, &profile.model_provider) {
-            // Skip builtin providers
-            if !is_custom_provider(provider_id) {
-                continue;
-            }
-
-            candidates.push((
-                provider_id.as_str(),
-                (
-                    provider_id.clone(),
-                    model_name.clone(),
-                    profile.model_reasoning_effort,
-                ),
-            ));
-        }
-    }
-
-    // Sort by provider id then model name for stable output.
-    candidates.sort_by(|a, b| a.0.cmp(b.0).then_with(|| a.1.1.cmp(&b.1.1)));
-
-    for (_provider, (provider_id, model_name, _effort)) in candidates {
-        let model_id = format!("{}@{}", provider_id, model_name);
-        if seen.contains(&model_id) {
-            continue;
-        }
-        if let Some(model_info) = build_model_info(config, &provider_id, &model_name) {
-            seen.insert(model_id);
-            models.push(model_info);
-        }
-    }
-
-    models
-}
-
-/// Parse and validate a model id and return components (provider, model, effort).
-pub fn parse_and_validate_model(
-    config: &Config,
-    profiles: &HashMap<String, ConfigProfile>,
-    model_id: &ModelId,
-) -> Option<(String, String, Option<ReasoningEffort>)> {
-    let id_str = model_id.0.as_ref();
-    let (provider_id, model_name) = id_str
-        .split_once('@')
-        .map(|(p, m)| (p.to_owned(), m.to_owned()))?;
-
-    // Validate that the provider exists
-    if !config.model_providers.contains_key(&provider_id) {
-        return None;
-    }
-
-    // Check if this is the current config model
-    if provider_id == config.model_provider_id
-        && config.model.as_deref() == Some(model_name.as_str())
-    {
-        return Some((provider_id, model_name, config.model_reasoning_effort));
-    }
-
-    // Search in profiles for matching provider@model combination
-    for profile in profiles.values() {
-        if profile.model.as_ref() == Some(&model_name)
-            && profile.model_provider.as_ref() == Some(&provider_id)
-        {
-            return Some((provider_id, model_name, profile.model_reasoning_effort));
-        }
-    }
-
-    None
-}
