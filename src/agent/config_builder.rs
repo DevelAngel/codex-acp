@@ -6,7 +6,7 @@ use codex_core::config::{
     types::{McpServerConfig, McpServerTransportConfig},
 };
 
-use crate::fs::FsBridge;
+use crate::{fs::FsBridge, mcp_acp_bridge::AcpMcpBridge};
 
 use super::core::CodexAgent;
 
@@ -56,6 +56,44 @@ impl CodexAgent {
         })
     }
 
+    /// Prepare an ACP-over-ACP MCP server configuration for a session.
+    ///
+    /// This creates a stdio-based MCP server that forwards every call to
+    /// the [`AcpMcpBridge`], which relays it through the ACP connection to
+    /// the client-owned server identified by `server_id`.
+    pub(super) fn prepare_acp_mcp_server_config(
+        &self,
+        session_id: &str,
+        server_id: &str,
+        server_name: &str,
+        bridge: &AcpMcpBridge,
+    ) -> Result<McpServerConfig, Error> {
+        let exe_path = env::current_exe().map_err(|err| {
+            Error::internal_error().data(format!("failed to locate agent binary: {err}"))
+        })?;
+
+        let mut env = HashMap::new();
+        env.insert("ACP_MCP_BRIDGE_ADDR".into(), bridge.address().to_string());
+        env.insert("ACP_MCP_SESSION_ID".into(), session_id.to_owned());
+        env.insert("ACP_MCP_SERVER_ID".into(), server_id.to_owned());
+        env.insert("ACP_MCP_SERVER_NAME".into(), server_name.to_owned());
+
+        Ok(McpServerConfig {
+            transport: McpServerTransportConfig::Stdio {
+                command: exe_path.to_string_lossy().into_owned(),
+                args: vec!["--acp-mcp-bridge".into()],
+                env: Some(env),
+                env_vars: vec![],
+                cwd: None,
+            },
+            enabled: true,
+            startup_timeout_sec: Some(Duration::from_secs(5)),
+            tool_timeout_sec: Some(Duration::from_secs(30)),
+            enabled_tools: None,
+            disabled_tools: None,
+        })
+    }
+
     /// Build a streamable HTTP-based MCP server configuration.
     fn build_streamable_http_server(
         name: String,
@@ -89,6 +127,7 @@ impl CodexAgent {
     /// Build an MCP server configuration from an ACP McpServer specification.
     pub(super) fn build_mcp_server(
         &self,
+        session_id: &str,
         server: McpServer,
         startup_timeout: Option<Duration>,
         tool_timeout: Option<Duration>,
@@ -137,6 +176,21 @@ impl CodexAgent {
                         disabled_tools: None,
                     },
                 ))
+            }
+            McpServer::Acp(acp) => {
+                let bridge = self.mcp_bridge.as_ref()?;
+                let config = self
+                    .prepare_acp_mcp_server_config(
+                        session_id,
+                        &acp.server_id.to_string(),
+                        &acp.name,
+                        bridge,
+                    )
+                    .inspect_err(|err| {
+                        tracing::warn!(server = %acp.name, error = ?err, "failed to prepare acp mcp server config")
+                    })
+                    .ok()?;
+                Some((acp.name, config))
             }
             // Handle any future McpServer variants
             _ => None,
@@ -188,7 +242,7 @@ impl CodexAgent {
         session_config.mcp_servers.extend(
             mcp_servers
                 .into_iter()
-                .filter_map(|srv| self.build_mcp_server(srv, startup_timeout, tool_timeout)),
+                .filter_map(|srv| self.build_mcp_server(session_id, srv, startup_timeout, tool_timeout)),
         );
 
         // Add acp_fs MCP server if bridge is available
