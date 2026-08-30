@@ -9,11 +9,11 @@ use agent_client_protocol::schema::v1::{
     AgentCapabilities, AuthMethod, AuthMethodAgent, AuthMethodId, AuthenticateRequest, AuthenticateResponse,
     AvailableCommandsUpdate, ConnectMcpRequest, ConnectMcpResponse, Implementation,
     InitializeRequest, InitializeResponse, LoadSessionRequest, LoadSessionResponse,
-    McpCapabilities, MessageMcpRequest, MessageMcpResponse, ModelId, NewSessionRequest,
+    McpCapabilities, MessageMcpRequest, MessageMcpResponse, NewSessionRequest,
     NewSessionResponse, PromptCapabilities, ReadTextFileRequest, ReadTextFileResponse,
     RequestPermissionRequest, RequestPermissionResponse, SessionId,
-    SessionModeId, SessionModeState, SessionModelState, SessionNotification, SessionUpdate,
-    SetSessionModeRequest, SetSessionModeResponse, SetSessionModelRequest, SetSessionModelResponse,
+    SessionModeId, SessionModeState, SessionNotification, SessionUpdate,
+    SetSessionModeRequest, SetSessionModeResponse,
     WriteTextFileRequest, WriteTextFileResponse,
 };
 

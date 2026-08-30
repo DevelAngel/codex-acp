@@ -1,9 +1,9 @@
 use codex_acp::{AcpMcpBridge, CodexAgent, FsBridge};
-use agent_client_protocol::ByteStreams;
 use anyhow::Result;
 use codex_core::config::Config;
 use std::env;
 use tokio::{io, sync::mpsc};
+use agent_client_protocol::ByteStreams;
 use tokio_util::compat::{TokioAsyncReadCompatExt as _, TokioAsyncWriteCompatExt as _};
 
 #[tokio::main(flavor = "current_thread")]
@@ -42,3 +42,4 @@ async fn main() -> Result<()> {
         })
         .await
 }
+

@@ -98,6 +98,7 @@ impl ServerHandler for AcpMcpProxy {
         Ok(ListToolsResult {
             tools,
             next_cursor: None,
+            meta: None,
         })
     }
 

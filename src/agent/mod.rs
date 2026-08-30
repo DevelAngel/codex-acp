@@ -116,6 +116,12 @@ impl CodexAgent {
                                         }
                                     }
                                 }
+                                Some(ClientOp::ConnectMcp { request, response_tx }) => {
+                                    let _ = response_tx.send(conn.send_request(request).block_task().await);
+                                }
+                                Some(ClientOp::MessageMcp { request, response_tx }) => {
+                                    let _ = response_tx.send(conn.send_request(request).block_task().await);
+                                }
                                 None => break,
                             }
                         }

@@ -5,7 +5,7 @@
 
 use std::{net::SocketAddr, sync::Arc};
 
-use agent_client_protocol::schema::v1::{ConnectMcpRequest, McpServerAcpId, MessageMcpRequest, SessionId};
+use agent_client_protocol::schema::v1::{ConnectMcpRequest, McpConnectionId, McpServerAcpId, MessageMcpRequest};
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value, json};
 use tokio::{
@@ -159,13 +159,13 @@ impl AcpMcpBridgeInner {
 
     async fn forward(
         &self,
-        session_id: String,
+        _session_id: String,
         server_id: String,
         method: String,
         params: Value,
     ) -> Result<Value, String> {
         let connection_id = self
-            .connect_mcp(session_id, McpServerAcpId::new(server_id))
+            .connect_mcp(McpServerAcpId::new(server_id))
             .await?;
 
         let mut initialize_params = Map::new();
@@ -190,13 +190,9 @@ impl AcpMcpBridgeInner {
         self.message_mcp(connection_id, &method, params_map).await
     }
 
-    async fn connect_mcp(
-        &self,
-        session_id: String,
-        server_id: McpServerAcpId,
-    ) -> Result<agent_client_protocol::McpConnectionId, String> {
+    async fn connect_mcp(&self, server_id: McpServerAcpId) -> Result<McpConnectionId, String> {
         let (tx, rx) = oneshot::channel();
-        let request = ConnectMcpRequest::new(SessionId::new(session_id), server_id);
+        let request = ConnectMcpRequest::new(server_id);
         self.client_tx
             .send(ClientOp::ConnectMcp {
                 request,
@@ -213,12 +209,12 @@ impl AcpMcpBridgeInner {
 
     async fn message_mcp(
         &self,
-        connection_id: agent_client_protocol::McpConnectionId,
+        connection_id: McpConnectionId,
         method: &str,
         params: Map<String, Value>,
     ) -> Result<Value, String> {
-        let (tx, rx) = oneshot::channel();
         let request = MessageMcpRequest::new(connection_id, method).params(params);
+        let (tx, rx) = oneshot::channel();
         self.client_tx
             .send(ClientOp::MessageMcp {
                 request,
@@ -227,7 +223,7 @@ impl AcpMcpBridgeInner {
             .map_err(|_| "client message_mcp channel closed".to_string())?;
 
         match rx.await {
-            Ok(Ok(resp)) => Ok(resp.result),
+            Ok(Ok(resp)) => serde_json::from_str(resp.0.get()).map_err(|err| err.to_string()),
             Ok(Err(err)) => Err(err.message),
             Err(_) => Err("client message_mcp response dropped".to_string()),
         }
