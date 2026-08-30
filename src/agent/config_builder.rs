@@ -1,6 +1,6 @@
 use std::{collections::HashMap, env, time::Duration};
 
-use agent_client_protocol::{Error, HttpHeader, McpServer};
+use agent_client_protocol::{Error, schema::v1::{HttpHeader, McpServer}};
 use codex_core::config::{
     Config,
     types::{McpServerConfig, McpServerTransportConfig},

@@ -1,7 +1,8 @@
-use std::{cell::RefCell, collections::HashMap, rc::Rc, sync::Arc};
+use std::{collections::HashMap, sync::{Arc, RwLock}};
 
-use agent_client_protocol::{
-    ClientCapabilities, ContentBlock, ContentChunk, Error, SessionId, SessionModeId,
+use agent_client_protocol::Error;
+use agent_client_protocol::schema::v1::{
+    ClientCapabilities, ContentBlock, ContentChunk, SessionId, SessionModeId,
     SessionNotification, SessionUpdate,
 };
 use codex_core::{
@@ -67,10 +68,10 @@ impl SessionState {
 /// - Client update notifications
 /// - Context override operations
 pub struct SessionManager {
-    sessions: Rc<RefCell<HashMap<String, SessionState>>>,
+    sessions: Arc<RwLock<HashMap<String, SessionState>>>,
     session_update_tx: UnboundedSender<(SessionNotification, Sender<()>)>,
     conversation_manager: Arc<ConversationManager>,
-    client_capabilities: RefCell<ClientCapabilities>,
+    client_capabilities: Arc<RwLock<ClientCapabilities>>,
 }
 
 impl SessionManager {
@@ -80,15 +81,15 @@ impl SessionManager {
         conversation_manager: Arc<ConversationManager>,
     ) -> Self {
         Self {
-            sessions: Rc::new(RefCell::new(HashMap::new())),
+            sessions: Arc::new(RwLock::new(HashMap::new())),
             session_update_tx,
             conversation_manager,
-            client_capabilities: RefCell::new(Default::default()),
+            client_capabilities: Arc::new(RwLock::new(Default::default())),
         }
     }
 
     /// Get a reference to the sessions store for external access.
-    pub fn sessions(&self) -> Rc<RefCell<HashMap<String, SessionState>>> {
+    pub fn sessions(&self) -> Arc<RwLock<HashMap<String, SessionState>>> {
         self.sessions.clone()
     }
 
@@ -99,7 +100,7 @@ impl SessionManager {
     where
         F: FnOnce(&mut SessionState) -> R,
     {
-        let mut sessions = self.sessions.borrow_mut();
+        let mut sessions = self.sessions.write().ok()?;
         let key: &str = session_id.0.as_ref();
         sessions.get_mut(key).map(f)
     }
@@ -120,7 +121,7 @@ impl SessionManager {
     /// This will also resolve when the provided id matches an FS session id
     /// held inside a `SessionState`.
     pub fn current_mode(&self, session_id: &SessionId) -> Option<SessionModeId> {
-        let sessions = self.sessions.borrow();
+        let sessions = self.sessions.read().ok()?;
         Self::resolve_state(&sessions, session_id).map(|s| s.current_mode.clone())
     }
 
@@ -134,7 +135,7 @@ impl SessionManager {
     /// If the provided `session_id` refers to an FS session id, return the
     /// corresponding ACP session id. Otherwise, return the original ACP id.
     pub fn resolve_acp_session_id(&self, session_id: &SessionId) -> Option<SessionId> {
-        let sessions = self.sessions.borrow();
+        let sessions = self.sessions.read().ok()?;
         if sessions.contains_key(session_id.0.as_ref()) {
             return Some(session_id.clone());
         }
@@ -162,7 +163,7 @@ impl SessionManager {
         session_id: &SessionId,
     ) -> Result<Arc<CodexConversation>, Error> {
         let conversation_opt = {
-            let sessions = self.sessions.borrow();
+            let sessions = self.sessions.read().map_err(|_| Error::internal_error().data("session state lock poisoned"))?;
             let state = sessions
                 .get(session_id.0.as_ref())
                 .ok_or_else(|| Error::invalid_params().data("session not found"))?;
@@ -190,17 +191,19 @@ impl SessionManager {
 
     /// Set client capabilities.
     pub fn set_client_capabilities(&self, capabilities: ClientCapabilities) {
-        self.client_capabilities.replace(capabilities);
+        if let Ok(mut stored) = self.client_capabilities.write() {
+            *stored = capabilities;
+        }
     }
 
     /// Get a reference to the client capabilities.
-    pub fn client_capabilities(&self) -> std::cell::Ref<'_, ClientCapabilities> {
-        self.client_capabilities.borrow()
+    pub fn client_capabilities(&self) -> ClientCapabilities {
+        self.client_capabilities.read().map(|caps| caps.clone()).unwrap_or_default()
     }
 
     /// Check if the client supports terminal operations.
     pub fn support_terminal(&self) -> bool {
-        self.client_capabilities.borrow().terminal
+        self.client_capabilities.read().map(|caps| caps.terminal).unwrap_or(false)
     }
 
     /// Send a session update notification to the client.
@@ -256,7 +259,7 @@ impl SessionManager {
     {
         // Build the override operation using the current session state
         let op = {
-            let sessions = self.sessions.borrow();
+            let sessions = self.sessions.read().map_err(|_| Error::internal_error().data("session state lock poisoned"))?;
             let state = sessions
                 .get(session_id.0.as_ref())
                 .ok_or_else(|| Error::invalid_params().data("session not found"))?;

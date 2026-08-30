@@ -1,7 +1,7 @@
 use std::{path::Path, sync::LazyLock};
 
 use crate::CodexAgent;
-use agent_client_protocol::{AvailableCommand, SessionId};
+use agent_client_protocol::schema::v1::{AvailableCommand, SessionId};
 use codex_core::protocol::{AskForApproval, Op, ReviewRequest, ReviewTarget, SandboxPolicy};
 use codex_protocol::user_input::UserInput;
 
@@ -65,7 +65,7 @@ impl CodexAgent {
         let sid_str = session_id.0.as_ref();
         // Session snapshot
         let (approval_mode, sandbox_mode, token_usage) = {
-            if let Some(state) = self.session_manager.sessions().borrow().get(sid_str) {
+            if let Some(state) = self.session_manager.sessions().read().ok().and_then(|sessions| sessions.get(sid_str).cloned()) {
                 (
                     state.current_approval,
                     state.current_sandbox.clone(),
