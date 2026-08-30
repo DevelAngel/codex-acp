@@ -15,6 +15,7 @@ use agent_client_protocol::schema::v1::{
     SetSessionModeRequest, SetSessionModeResponse,
     WriteTextFileRequest, WriteTextFileResponse,
 };
+
 use codex_app_server_protocol::AuthMode;
 use codex_core::config::Config;
 use codex_core::{
@@ -51,6 +52,14 @@ pub enum ClientOp {
     WriteTextFile {
         request: WriteTextFileRequest,
         response_tx: oneshot::Sender<Result<WriteTextFileResponse, Error>>,
+    },
+    ConnectMcp {
+        request: ConnectMcpRequest,
+        response_tx: oneshot::Sender<Result<ConnectMcpResponse, Error>>,
+    },
+    MessageMcp {
+        request: MessageMcpRequest,
+        response_tx: oneshot::Sender<Result<MessageMcpResponse, Error>>,
     },
 }
 
@@ -138,7 +147,7 @@ impl CodexAgent {
                     .audio(false)
                     .embedded_context(true),
             )
-            .mcp_capabilities(McpCapabilities::new().http(true).sse(true));
+            .mcp_capabilities(McpCapabilities::new().http(true).sse(true).acp(true));
 
         Ok(InitializeResponse::new(ProtocolVersion::V1)
             .agent_capabilities(agent_capabilities)
