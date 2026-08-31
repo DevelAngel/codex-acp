@@ -43,7 +43,7 @@ impl CodexAgent {
             .on_receive_request({
                 let agent = agent.clone();
                 async move |args: NewSessionRequest, responder, _cx| {
-                    responder.respond_with_result(agent.new_session(args).await)
+                    tracing::info!(mcp_server_count = args.mcp_servers.len(), "Dispatching new session request"); responder.respond_with_result(agent.new_session(args).await)
                 }
             }, on_receive_request!())
             .on_receive_request({

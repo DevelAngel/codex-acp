@@ -244,6 +244,7 @@ impl CodexAgent {
         args: NewSessionRequest,
     ) -> Result<NewSessionResponse, Error> {
         info!(?args, "Received new session request");
+        for server in &args.mcp_servers { tracing::info!(?server, "Received MCP server registration"); }
         let fs_session_id = Uuid::new_v4().to_string();
 
         let modes = utils::session_modes_for_config(&self.config);
@@ -252,7 +253,7 @@ impl CodexAgent {
             .map(|m| m.current_mode_id.clone())
             .unwrap_or_else(|| SessionModeId::new("auto"));
 
-        let session_config = self.build_session_config(&fs_session_id, args.mcp_servers)?;
+        let mcp_server_count = args.mcp_servers.len(); tracing::info!(mcp_server_count, "Building session configuration"); let session_config = self.build_session_config(&fs_session_id, args.mcp_servers)?;
 
         let new_conv = self
             .session_manager
