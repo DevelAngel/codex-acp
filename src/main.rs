@@ -9,8 +9,6 @@ use agent_client_protocol::Stdio;
 async fn main() -> Result<()> {
     tokio::task::LocalSet::new()
         .run_until(async {
-            // Keep stdio protocol streams free from human-readable log output.
-            unsafe { env::set_var("CODEX_LOG_STDERR", "0") };
 
             codex_acp::init_from_env()?;
 
