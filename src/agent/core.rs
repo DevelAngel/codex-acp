@@ -7,14 +7,16 @@ use agent_client_protocol::Error;
 use agent_client_protocol::schema::ProtocolVersion;
 use agent_client_protocol::schema::v1::{
     AgentCapabilities, AuthMethod, AuthMethodAgent, AuthMethodId, AuthenticateRequest, AuthenticateResponse,
-    AvailableCommandsUpdate, Implementation, InitializeRequest, InitializeResponse,
-    LoadSessionRequest, LoadSessionResponse, McpCapabilities, NewSessionRequest,
-    NewSessionResponse, PromptCapabilities, ReadTextFileRequest,
-    ReadTextFileResponse, RequestPermissionRequest, RequestPermissionResponse, SessionId,
+    AvailableCommandsUpdate, ConnectMcpRequest, ConnectMcpResponse, Implementation,
+    InitializeRequest, InitializeResponse, LoadSessionRequest, LoadSessionResponse,
+    McpCapabilities, MessageMcpNotification, MessageMcpRequest, MessageMcpResponse, NewSessionRequest,
+    NewSessionResponse, PromptCapabilities, ReadTextFileRequest, ReadTextFileResponse,
+    RequestPermissionRequest, RequestPermissionResponse, SessionId,
     SessionModeId, SessionModeState, SessionNotification, SessionUpdate,
     SetSessionModeRequest, SetSessionModeResponse,
     WriteTextFileRequest, WriteTextFileResponse,
 };
+
 use codex_app_server_protocol::AuthMode;
 use codex_core::config::Config;
 use codex_core::{
@@ -28,7 +30,7 @@ use tokio::{
 use tracing::{info, warn};
 use uuid::Uuid;
 
-use crate::{agent::utils, fs::FsBridge};
+use crate::{agent::utils, fs::FsBridge, mcp_acp_bridge::AcpMcpBridge};
 
 use super::{
     commands,
@@ -52,6 +54,17 @@ pub enum ClientOp {
         request: WriteTextFileRequest,
         response_tx: oneshot::Sender<Result<WriteTextFileResponse, Error>>,
     },
+    ConnectMcp {
+        request: ConnectMcpRequest,
+        response_tx: oneshot::Sender<Result<ConnectMcpResponse, Error>>,
+    },
+    MessageMcp {
+        request: MessageMcpRequest,
+        response_tx: oneshot::Sender<Result<MessageMcpResponse, Error>>,
+    },
+    MessageMcpNotification {
+        notification: MessageMcpNotification,
+    },
 }
 
 /// The main ACP agent implementation.
@@ -64,6 +77,7 @@ pub struct CodexAgent {
     pub(super) auth_manager: Arc<RwLock<Arc<AuthManager>>>,
     pub(super) client_tx: UnboundedSender<ClientOp>,
     pub(super) fs_bridge: Option<Arc<FsBridge>>,
+    pub(super) mcp_bridge: Option<Arc<AcpMcpBridge>>,
 }
 
 impl CodexAgent {
@@ -78,6 +92,7 @@ impl CodexAgent {
         client_tx: UnboundedSender<ClientOp>,
         config: Config,
         fs_bridge: Option<Arc<FsBridge>>,
+        mcp_bridge: Option<Arc<AcpMcpBridge>>,
     ) -> Self {
         let auth = AuthManager::shared(
             config.codex_home.clone(),
@@ -95,6 +110,7 @@ impl CodexAgent {
             auth_manager: Arc::new(RwLock::new(auth)),
             client_tx,
             fs_bridge,
+            mcp_bridge,
         }
     }
 
@@ -138,7 +154,7 @@ impl CodexAgent {
                     .audio(false)
                     .embedded_context(true),
             )
-            .mcp_capabilities(McpCapabilities::new().http(true).sse(true));
+            .mcp_capabilities(McpCapabilities::new().http(true).sse(true).acp(true));
 
         Ok(InitializeResponse::new(ProtocolVersion::V1)
             .agent_capabilities(agent_capabilities)
@@ -228,6 +244,7 @@ impl CodexAgent {
         args: NewSessionRequest,
     ) -> Result<NewSessionResponse, Error> {
         info!(?args, "Received new session request");
+        for server in &args.mcp_servers { tracing::info!(?server, "Received MCP server registration"); }
         let fs_session_id = Uuid::new_v4().to_string();
 
         let modes = utils::session_modes_for_config(&self.config);
@@ -236,7 +253,7 @@ impl CodexAgent {
             .map(|m| m.current_mode_id.clone())
             .unwrap_or_else(|| SessionModeId::new("auto"));
 
-        let session_config = self.build_session_config(&fs_session_id, args.mcp_servers)?;
+        let mcp_server_count = args.mcp_servers.len(); tracing::info!(mcp_server_count, "Building session configuration"); let session_config = self.build_session_config(&fs_session_id, args.mcp_servers)?;
 
         let new_conv = self
             .session_manager

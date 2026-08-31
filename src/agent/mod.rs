@@ -18,6 +18,7 @@ mod prompt;
 mod session_manager;
 mod utils;
 
+use tracing::warn;
 // Public exports
 pub use core::{ClientOp, CodexAgent};
 pub use session_manager::SessionManager;
@@ -42,7 +43,7 @@ impl CodexAgent {
             .on_receive_request({
                 let agent = agent.clone();
                 async move |args: NewSessionRequest, responder, _cx| {
-                    responder.respond_with_result(agent.new_session(args).await)
+                    tracing::info!(mcp_server_count = args.mcp_servers.len(), "Dispatching new session request"); responder.respond_with_result(agent.new_session(args).await)
                 }
             }, on_receive_request!())
             .on_receive_request({
@@ -114,6 +115,17 @@ impl CodexAgent {
                                             let _ = response_tx.send(Err(Error::invalid_params()
                                                 .data("unknown session for write_text_file")));
                                         }
+                                    }
+                                }
+                                Some(ClientOp::ConnectMcp { request, response_tx }) => {
+                                    let _ = response_tx.send(conn.send_request(request).block_task().await);
+                                }
+                                Some(ClientOp::MessageMcp { request, response_tx }) => {
+                                    let _ = response_tx.send(conn.send_request(request).block_task().await);
+                                }
+                                Some(ClientOp::MessageMcpNotification { notification }) => {
+                                    if let Err(err) = conn.send_notification(notification) {
+                                        warn!(?err, "failed to send MCP notification to client");
                                     }
                                 }
                                 None => break,
