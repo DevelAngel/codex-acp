@@ -10,8 +10,6 @@ async fn main() -> Result<()> {
     tokio::task::LocalSet::new()
         .run_until(async {
 
-            codex_acp::init_from_env()?;
-
             if env::args().nth(1).as_deref() == Some("--acp-fs-mcp") {
                 return codex_acp::fs::run_mcp_server().await;
             }
@@ -19,6 +17,8 @@ async fn main() -> Result<()> {
             if env::args().nth(1).as_deref() == Some("--acp-mcp-bridge") {
                 return codex_acp::mcp_acp_bridge::run_mcp_server().await;
             }
+
+            codex_acp::init_from_env()?;
 
             let transport = Stdio::new();
             let (tx, rx) = mpsc::unbounded_channel();
